@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Общий чат</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    <style>
+        body { background: linear-gradient(135deg, #0f172a, #1e2937); font-family: system-ui, sans-serif; }
+        .message { animation: pop 0.3s ease; }
+        @keyframes pop { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .dev-badge { background: linear-gradient(90deg, #f59e0b, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    </style>
+</head>
+<body class="text-white min-h-screen flex overflow-hidden">
+
+    <!-- Авторизация -->
+    <div id="auth" class="w-full max-w-md mx-auto p-8 flex flex-col justify-center">
+        <div class="text-center mb-10">
+            <div class="mx-auto w-20 h-20 bg-gradient-to-br from-[#229ED9] to-blue-600 rounded-3xl flex items-center justify-center text-5xl shadow-2xl">💬</div>
+            <h1 class="text-4xl font-bold mt-6">Общий чат</h1>
+        </div>
+        <div class="bg-slate-900 rounded-3xl p-8">
+            <div class="flex border-b mb-6">
+                <button onclick="switchTab(0)" id="tab0" class="flex-1 py-3 font-semibold border-b-2 border-[#229ED9] text-[#229ED9]">Вход</button>
+                <button onclick="switchTab(1)" id="tab1" class="flex-1 py-3 font-semibold text-slate-400">Регистрация</button>
+            </div>
+            <div id="login-form">
+                <input id="login-nick" class="w-full bg-slate-800 rounded-2xl px-5 py-4 mb-4 outline-none" placeholder="Никнейм">
+                <input id="login-pass" type="password" class="w-full bg-slate-800 rounded-2xl px-5 py-4 mb-6 outline-none" placeholder="Пароль">
+                <button onclick="login()" class="w-full bg-[#229ED9] py-5 rounded-3xl font-semibold text-lg">Войти</button>
+            </div>
+            <div id="reg-form" class="hidden">
+                <input id="reg-nick" class="w-full bg-slate-800 rounded-2xl px-5 py-4 mb-4 outline-none" placeholder="Никнейм">
+                <input id="reg-pass" type="password" class="w-full bg-slate-800 rounded-2xl px-5 py-4 mb-6 outline-none" placeholder="Пароль">
+                <button onclick="register()" class="w-full bg-gradient-to-r from-[#229ED9] to-blue-600 py-5 rounded-3xl font-semibold text-lg">Создать аккаунт</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Главный интерфейс Telegram -->
+    <div id="main" class="hidden flex-1 flex h-screen">
+        <!-- Сайдбар чатов -->
+        <div class="w-72 bg-slate-900 border-r border-slate-700 flex flex-col">
+            <div class="p-4 border-b flex items-center gap-3">
+                <div class="w-9 h-9 bg-gradient-to-br from-[#229ED9] to-blue-600 rounded-2xl flex items-center justify-center text-2xl">💬</div>
+                <div class="font-semibold text-xl">Общий чат</div>
+            </div>
+            <div onclick="switchChat('general')" class="sidebar-item p-4 hover:bg-slate-800 cursor-pointer flex gap-3 items-center">
+                <div class="w-10 h-10 bg-gradient-to-br from-[#229ED9] to-blue-600 rounded-3xl flex items-center justify-center text-3xl">💬</div>
+                <div><div class="font-semibold">Общий чат</div><div class="text-xs text-emerald-400">Все здесь</div></div>
+            </div>
+            <div onclick="switchChat('notifications')" class="sidebar-item p-4 hover:bg-slate-800 cursor-pointer flex gap-3 items-center">
+                <div class="w-10 h-10 bg-slate-700 rounded-3xl flex items-center justify-center text-3xl">🛎️</div>
+                <div><div class="font-semibold">Уведомления <span class="text-[#229ED9]">✓</span></div></div>
+            </div>
+            <div class="px-4 py-2 text-xs uppercase text-slate-400">Контакты</div>
+            <div id="contacts-list" class="flex-1 overflow-auto px-2"></div>
+            <div id="admin-btn" onclick="showAdmin()" class="hidden mx-4 mb-6 bg-gradient-to-r from-amber-500 to-pink-500 text-black font-bold py-4 rounded-3xl text-center cursor-pointer">Админ-панель</div>
+        </div>
+
+        <!-- Область сообщений -->
+        <div class="flex-1 flex flex-col">
+            <div class="h-14 bg-slate-900 border-b flex items-center px-6">
+                <div id="chat-header" class="font-semibold text-2xl"></div>
+            </div>
+            <div id="messages-area" class="flex-1 overflow-y-auto p-6 space-y-6 bg-[radial-gradient(#334155_1px,transparent_1px)] bg-[length:40px_40px]"></div>
+            <div class="p-4 bg-slate-900 border-t">
+                <div class="flex bg-slate-800 rounded-3xl">
+                    <input id="msg-input" onkeydown="if(event.key==='Enter') sendMsg()" class="flex-1 bg-transparent px-6 py-4 outline-none text-lg" placeholder="Напишите сообщение...">
+                    <button onclick="sendMsg()" class="bg-[#229ED9] w-12 h-12 rounded-3xl flex items-center justify-center text-2xl">➤</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Профиль / информация -->
+        <div id="profile-panel" class="w-80 bg-slate-900 border-l border-slate-700 hidden flex-col p-6 overflow-auto">
+            <div class="text-center">
+                <div id="profile-avatar" class="mx-auto w-28 h-28 rounded-3xl text-7xl flex items-center justify-center mb-6"></div>
+                <div id="profile-nick" class="text-3xl font-bold"></div>
+                <div id="profile-badges" class="mt-3"></div>
+            </div>
+            <button onclick="openPrivateChat()" class="mt-10 py-4 bg-[#229ED9] rounded-3xl font-semibold flex items-center justify-center gap-2">
+                <i class="fa-solid fa-paper-plane"></i> Написать
+            </button>
+            <button onclick="closeProfile()" class="mt-4 text-slate-400">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- Админ панель -->
+    <div id="admin-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+        <div class="bg-slate-900 rounded-3xl w-full max-w-2xl mx-4 p-8">
+            <h2 class="text-3xl font-bold mb-6">Админ-панель • droidYn</h2>
+            <div id="admin-users" class="max-h-96 overflow-auto"></div>
+            <div class="flex gap-4 mt-8">
+                <button onclick="restartAll()" class="flex-1 py-4 bg-orange-500 rounded-3xl font-bold">Перезапустить всем</button>
+                <button onclick="hideAdmin()" class="flex-1 py-4 border border-slate-600 rounded-3xl">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myNick = '', isDev = false, currentRoom = 'general', currentTarget = '';
+
+        function switchTab(n) {
+            document.getElementById('login-form').classList.toggle('hidden', n === 1);
+            document.getElementById('reg-form').classList.toggle('hidden', n === 0);
+        }
+
+        function register() {
+            const nick = document.getElementById('reg-nick').value.trim();
+            const pass = document.getElementById('reg-pass').value;
+            if (!nick || !pass) return alert('Заполните поля');
+            socket.emit('register', {nick, password: pass});
+        }
+
+        function login() {
+            const nick = document.getElementById('login-nick').value.trim();
+            const pass = document.getElementById('login-pass').value;
+            socket.emit('login', {nick, password: pass});
+        }
+
+        function demoLogin() {
+            socket.emit('login', {nick: 'droidYn', password: '112112'});
+        }
+
+        socket.on('register_ok', () => alert('Регистрация успешна! Теперь войдите.'));
+        socket.on('error', d => alert(d.msg));
+        socket.on('banned', () => { alert('Вы заблокированы'); setTimeout(() => location.reload(), 1000); });
+
+        socket.on('login_ok', data => {
+            myNick = data.nick;
+            isDev = data.is_dev;
+            document.getElementById('auth').classList.add('hidden');
+            document.getElementById('main').classList.remove('hidden');
+            document.getElementById('admin-btn').classList.toggle('hidden', !isDev);
+            switchChat('general');
+        });
+
+        function switchChat(room) {
+            currentRoom = room;
+            document.getElementById('chat-header').textContent = room === 'general' ? 'Общий чат' : room === 'notifications' ? 'Уведомления' : 'Чат';
+            document.getElementById('messages-area').innerHTML = '';
+            socket.emit('join_room', {room: room, nick: myNick});
+            socket.emit('get_messages', {room: room});
+        }
+
+        socket.on('messages_list', msgs => {
+            const area = document.getElementById('messages-area');
+            area.innerHTML = msgs.map(m => createMessageHTML(m)).join('');
+            area.scrollTop = area.scrollHeight;
+        });
+
+        socket.on('new_message', msg => {
+            if (msg.room && msg.room !== currentRoom) return;
+            const area = document.getElementById('messages-area');
+            area.innerHTML += createMessageHTML(msg);
+            area.scrollTop = area.scrollHeight;
+        });
+
+        function createMessageHTML(m) {
+            const isMine = m.nick === myNick;
+            let html = `<div class="message flex ${isMine ? 'justify-end' : 'justify-start'}">`;
+            html += `<div class="${isMine ? 'bg-[#229ED9]' : 'bg-slate-700'} max-w-[70%] rounded-3xl px-5 py-3">`;
+            if (!isMine) {
+                html += `<div onclick="showProfile('${m.nick}')" class="font-semibold cursor-pointer">${m.nick} `;
+                if (m.is_dev) html += `<span class="dev-badge">РАЗРАБОТЧИК</span> `;
+                if (m.verified) html += `✅`;
+                html += `</div>`;
+            }
+            html += `<p>${m.text}</p><div class="text-xs opacity-70 text-right mt-1">${m.time}</div></div></div>`;
+            return html;
+        }
+
+        function sendMsg() {
+            const input = document.getElementById('msg-input');
+            if (!input.value.trim()) return;
+            socket.emit('send_message', {room: currentRoom, nick: myNick, text: input.value});
+            input.value = '';
+        }
+
+        function showProfile(nick) {
+            currentTarget = nick;
+            const panel = document.getElementById('profile-panel');
+            panel.classList.remove('hidden');
+            document.getElementById('profile-nick').textContent = nick;
+            const av = document.getElementById('profile-avatar');
+            av.textContent = nick[0].toUpperCase();
+            av.style.background = nick === 'droidYn' ? 'linear-gradient(90deg,#f59e0b,#ec4899)' : '#229ED9';
+            document.getElementById('profile-badges').innerHTML = nick === 'droidYn' ? '<span class="dev-badge text-xl">РАЗРАБОТЧИК</span> ✅' : '';
+        }
+
+        function closeProfile() {
+            document.getElementById('profile-panel').classList.add('hidden');
+        }
+
+        function openPrivateChat() {
+            if (!currentTarget) return;
+            const room = `pm_${Math.min(myNick, currentTarget)}_${Math.max(myNick, currentTarget)}`;
+            switchChat(room);
+            closeProfile();
+        }
+
+        function showAdmin() {
+            document.getElementById('admin-modal').classList.remove('hidden');
+            socket.emit('get_all_users', {nick: myNick});
+        }
+
+        socket.on('users_list', users => {
+            let html = '';
+            users.forEach(u => {
+                if (u.nick === 'droidYn') return;
+                html += `<div class="flex justify-between items-center py-3 border-b border-slate-700">
+                    <div>${u.nick}</div>
+                    <div class="flex gap-3">
+                        <button onclick="toggleVerify('${u.nick}')" class="px-4 py-1 rounded-xl ${u.verified ? 'bg-emerald-600' : 'bg-slate-600'}">${u.verified ? '✓' : '×'}</button>
+                        <button onclick="banUser('${u.nick}')" class="px-4 py-1 bg-red-600 rounded-xl">Бан</button>
+                    </div>
+                </div>`;
+            });
+            document.getElementById('admin-users').innerHTML = html;
+        });
+
+        function toggleVerify(nick) { socket.emit('toggle_verify', {admin: myNick, target: nick}); setTimeout(() => showAdmin(), 500); }
+        function banUser(nick) { if (confirm(`Забанить ${nick}?`)) socket.emit('ban_user', {admin: myNick, target: nick}); }
+        function hideAdmin() { document.getElementById('admin-modal').classList.add('hidden'); }
+        function restartAll() { if (confirm('Перезапустить мессенджер для всех?')) socket.emit('restart_all', {nick: myNick}); }
+
+        socket.on('force_ban', () => { alert('Вас заблокировали. Выход через 30 секунд...'); setTimeout(() => location.reload(), 30000); });
+        socket.on('force_restart', () => { alert('Мессенджер перезапускается...'); setTimeout(() => location.reload(), 1500); });
+        socket.on('new_notification', n => alert(n.text));
+
+        function logout() { location.reload(); }
+
+        window.onload = () => console.log('✅ Общий чат готов');
+    </script>
+</body>
+</html>
